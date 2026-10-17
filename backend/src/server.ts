@@ -52,7 +52,24 @@ app.get('/api/files/:id',auth,asyncRoute(async(req,res)=>{
  res.set('Content-Type',file.contentType).set('Content-Disposition',`attachment; filename="${file.id}"`).sendFile(filename);
 }));
 app.use('/api',(_req,_res,next)=>next(new HttpError(404,'API route not found')));
+// Serve the built Vite frontend and API from one origin in free-tier deployment.
+// Same-origin routing is required by WorkSphere's secure SameSite=Lax cookie design.
+// Render may start npm workspaces with a different working directory.
+// Locate the built frontend relative to the compiled backend AND common CWDs.
+const frontendCandidates = [
+ path.resolve(import.meta.dirname, '../../frontend/dist'),
+ path.resolve(process.cwd(), 'frontend/dist'),
+ path.resolve(process.cwd(), '../frontend/dist'),
+];
+const frontendDist = frontendCandidates.find(dir => fs.existsSync(path.join(dir, 'index.html')));
+if (frontendDist) {
+ console.info('WorkSphere frontend found:', frontendDist);
+ app.use(express.static(frontendDist, { index: false }));
+ app.get(/^(?!\/api(?:\/|$)).*/, (_req, res) => res.sendFile(path.join(frontendDist, 'index.html')));
+} else {
+ console.error('WorkSphere frontend build NOT FOUND. Checked:', frontendCandidates);
+}
 app.use(errorHandler);
-const port=Number(process.env.API_PORT||4000);
-app.listen(port,()=>console.info(`WorkSphere API listening on http://localhost:${port}`));
+const port=Number(process.env.PORT||process.env.API_PORT||4000);
+app.listen(port, '0.0.0.0', ()=>console.info(`WorkSphere listening on port ${port}`));
 process.on('SIGINT',()=>db.$disconnect().finally(()=>process.exit(0)));
